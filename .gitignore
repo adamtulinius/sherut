@@ -4,3 +4,10 @@ cabal-dev
 *.hi
 *.chi
 *.chs.h
+LICENSE
+static/tmp/*
+.ghci
+*.sqlite3
+*.aes
+run
+*#*
