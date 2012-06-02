@@ -1,0 +1,6 @@
+<h1>Child processes:
+<ul>
+  $forall child <- children
+    <li>
+      <a href=@{ViewProcessR $ identifyChild child}>
+        #{name child}

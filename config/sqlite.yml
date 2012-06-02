@@ -1,0 +1,20 @@
+Default: &defaults
+  database: process-master.sqlite3
+  poolsize: 10
+
+Development:
+  <<: *defaults
+
+Testing:
+  database: process-master_test.sqlite3
+  <<: *defaults
+
+Staging:
+  database: process-master_staging.sqlite3
+  poolsize: 100
+  <<: *defaults
+
+Production:
+  database: process-master_production.sqlite3
+  poolsize: 100
+  <<: *defaults
