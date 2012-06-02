@@ -14,11 +14,13 @@ getHomeR = do
 
 getNewProcessR :: Handler RepHtml
 getNewProcessR = do
+               portTVar <- usedPorts <$> getYesod
                storage <- processList <$> getYesod
 
-               child <- liftIO $ atomically $ createChildApp storage "test-app2" "0.0.1"
-                                                      "cabal-dev/bin/process-master"
+               child <- liftIO $ createChildApp portTVar storage "test-app2" "0.0.1"
+                                                      "cabal-dev/bin/sherut"
                                                       [Just "Development", Just"--port", Nothing]
+
 
                defaultLayout $(widgetFile "child")
 
@@ -37,10 +39,10 @@ getStartProcessR :: String -> Handler RepHtml
 getStartProcessR appId = undefined
 
 
-getStopProcessR :: String -> Handler ()
-getStopProcessR appId = do
+getKillProcessR :: String -> Handler ()
+getKillProcessR appId = do
                 storage <- processList <$> getYesod
-                mChild <- liftIO $ atomically $ stopChildApp storage appId
+                mChild <- liftIO $ atomically $ killChildApp storage appId
 
                 case mChild of
                      Nothing -> notFound

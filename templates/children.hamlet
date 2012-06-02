@@ -1,6 +1,17 @@
 <h1>Child processes:
-<ul>
+<table>
+  <tr>
+    <th>Name
+    <th>Running
+    <th>Kill
   $forall child <- children
-    <li>
-      <a href=@{ViewProcessR $ identifyChild child}>
-        #{name child}
+    $with childIdentifier <- identifyChild child
+      <tr>
+        <td>
+          <a href=@{ViewProcessR childIdentifier}>
+            #{name child}
+        <td>
+          #{show $ state child}
+        <td>
+          <a href=@{KillProcessR childIdentifier}>
+            kill

@@ -47,6 +47,7 @@ data App = App
     , httpManager :: Manager
     , persistConfig :: Settings.PersistConfig
     , processList :: TVar [ChildApp]
+    , usedPorts :: TVar [Int]
     }
 
 -- Set up i18n messages. See the message folder.

@@ -51,7 +51,8 @@ makeFoundation conf setLogger = do
     p <- Database.Persist.Store.createPoolConfig (dbconf :: Settings.PersistConfig)
     Database.Persist.Store.runPool dbconf (runMigration migrateAll) p
     processList' <- liftIO $ atomically $ newTVar []
-    return $ App conf setLogger s p manager dbconf processList'
+    usedPorts'   <- liftIO $ atomically $ newTVar []
+    return $ App conf setLogger s p manager dbconf processList' usedPorts'
 
 -- for yesod devel
 getApplicationDev :: IO (Int, Application)

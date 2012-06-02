@@ -5,8 +5,7 @@
 /robots.txt RobotsR GET
 
 / HomeR GET
-/add NewProcessR GET
 /view/#String ViewProcessR GET
-/start/#String StartProcessR GET
-/stop/#String StopProcessR GET
+/spawn NewProcessR GET
+/kill/#String KillProcessR GET
 /restart/#String RestartProcessR GET

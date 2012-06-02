@@ -3,10 +3,13 @@ module ProcessList
     , ChildAppState (..)
     , identifyChild
     , getChildById
+    , childRunning
     , listChildApps
     , addChildApp
+    , updateChildApp
+    , setChildState
     , createChildApp
-    , stopChildApp
+    , killChildApp
     , module GHC.Conc
     , module System.Process
     ) where
@@ -16,10 +19,11 @@ import Data.Maybe (fromMaybe)
 import Data.List (sort)
 import System.Process
 import GHC.Conc (atomically, STM, TVar, newTVar, readTVar, writeTVar, unsafeIOToSTM)
+import Control.Concurrent (forkIO)
 
 
 
-data ChildAppState = Started | Stopped | Starting | Stopping
+data ChildAppState = Started | Stopped | Starting | Stopping | Crashed
                      deriving (Show)
 
 
@@ -34,11 +38,21 @@ data ChildApp = ChildApp { name :: String
 
 identifyChild :: ChildApp -> String
 identifyChild childApp = name childApp
-                   ++ "-"
-                   ++ version childApp
-                   ++ ":"
-                   ++ (show $ portNumber childApp)
+                         ++ "-"
+                         ++ version childApp
+                         ++ ":"
+                         ++ (show $ portNumber childApp)
 
+
+childRunning :: ChildApp -> IO Bool
+childRunning childApp = do
+             case (handle childApp) of
+                  Nothing -> return False
+                  Just processHandle -> do
+                       mExitCode <- getProcessExitCode processHandle
+                       case mExitCode of
+                            Nothing -> return True
+                            _       -> return False
 
 
 getChildById :: TVar [ChildApp] -> String -> STM (Maybe ChildApp)
@@ -75,37 +89,77 @@ addChildApp tvar newChild = do
             return children
 
 
-getAvailablePort :: TVar [ChildApp] -> STM Int
+updateChildApp :: TVar [ChildApp] -> ChildApp -> STM [ChildApp]
+updateChildApp storage childApp = do
+               children <- readTVar storage
+
+               let childAppId = identifyChild childApp
+                   children' = filter (\c -> childAppId /= (identifyChild c)) children
+                   newChildren = (childApp:children')
+
+               writeTVar storage newChildren
+               return newChildren
+
+
+setChildState :: TVar [ChildApp] -> ChildApp -> ChildAppState -> IO [ChildApp]
+setChildState storage childApp newState = do
+              let newChildApp = ChildApp (name childApp)
+                                         (version childApp)
+                                         (filePath childApp)
+                                         (args childApp)
+                                         (portNumber childApp)
+                                         (handle childApp)
+                                         newState
+
+              children <- atomically $ updateChildApp storage newChildApp
+              return children
+
+getAvailablePort :: TVar [Int] -> STM Int
 getAvailablePort tvar = do
-                 processList <- readTVar tvar
-                 let usedPorts = map portNumber processList
-                     sortedPorts = sort usedPorts
+                 usedPorts <- readTVar tvar
+
+                 let sortedPorts = sort usedPorts
                      np []                     = 3001
                      np (x1:[])                = x1+1
                      np (x1:x2:xs) | diff <= 1 = np(x2:xs) 
                                    | diff  > 1 = x1+1
                         where diff = x2-x1
                      np _                      = 3001
+                     newPort = np sortedPorts
 
-                 return $ np sortedPorts
+                 _ <- writeTVar tvar (newPort:usedPorts)
+
+                 return newPort
 
 
 
-createChildApp :: TVar [ChildApp] -> String -> String
-                -> FilePath -> [Maybe String] -> STM ChildApp
+createChildApp :: TVar [Int] -> TVar [ChildApp] -> String -> String
+                -> FilePath -> [Maybe String] -> IO ChildApp
 
-createChildApp tvar name' version' filePath' args' = do
-               port <- getAvailablePort tvar
+createChildApp portsTVar storage name' version' filePath' args' = do
+               port <- atomically $ getAvailablePort portsTVar
                let args'' = map (fromMaybe (show port)) args'
-               processHandle <- unsafeIOToSTM $ runProcess filePath' args''
+               processHandle <- runProcess filePath' args''
                                                            Nothing Nothing
                                                            Nothing Nothing
                                                            Nothing
+
                let newChild = ChildApp name' version' filePath' args'
                                        port (Just processHandle) Started
-               _ <- addChildApp tvar newChild
+
+               _ <- forkIO $ childWatcher storage newChild -- FIXME: Save TheadId somewhere
+
+               _ <- atomically $ addChildApp storage newChild
                return newChild
 
+
+childWatcher :: TVar [ChildApp] -> ChildApp -> IO ()
+childWatcher storage childApp = do
+             case (handle childApp) of
+--                  Nothing -> -- restart
+                  Just processHandle -> do
+                       _ <- waitForProcess processHandle
+                       return ()
 
 {-
 startChild :: TVar [ChildApp] -> String -> STM (Maybe ChildApp)
@@ -120,8 +174,8 @@ startChild storage childId = do
                           Just childHandle ->
 -}
 
-stopChildApp :: TVar [ChildApp] -> String -> STM (Maybe ChildApp)
-stopChildApp storage childId = do
+killChildApp :: TVar [ChildApp] -> String -> STM (Maybe ChildApp)
+killChildApp storage childId = do
              mChild <- getChildById storage childId
 
              case mChild of
@@ -131,10 +185,11 @@ stopChildApp storage childId = do
                             Nothing -> return (Just child)
                             Just processHandle -> do
                                  _ <- unsafeIOToSTM $ terminateProcess processHandle
+--                                 _ <- unsafeIOToSTM $ waitForProcess processHandle
                                  return (Just child)
 
 
 restartChild :: TVar [ChildApp] -> String -> STM (Maybe ChildApp)
 restartChild storage childId = do
-             stopChildApp storage childId
+             killChildApp storage childId
 --             startChild storage childId
