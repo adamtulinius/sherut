@@ -17,6 +17,7 @@ module ProcessList
 import Prelude
 import Data.Maybe (fromMaybe)
 import Data.List (sort)
+import System.Exit (ExitCode (ExitSuccess, ExitFailure))
 import System.Process
 import GHC.Conc (atomically, STM, TVar, newTVar, readTVar, writeTVar, unsafeIOToSTM)
 import Control.Concurrent (forkIO)
@@ -24,7 +25,7 @@ import Control.Concurrent (forkIO)
 
 
 data ChildAppState = Started | Stopped | Starting | Stopping | Crashed
-                     deriving (Show)
+                     deriving (Show, Eq)
 
 
 data ChildApp = ChildApp { name :: String
@@ -35,6 +36,7 @@ data ChildApp = ChildApp { name :: String
                          , handle :: Maybe ProcessHandle
                          , state :: ChildAppState
                          }
+
 
 identifyChild :: ChildApp -> String
 identifyChild childApp = name childApp
@@ -101,7 +103,18 @@ updateChildApp storage childApp = do
                return newChildren
 
 
-setChildState :: TVar [ChildApp] -> ChildApp -> ChildAppState -> IO [ChildApp]
+deleteChildApp :: TVar [ChildApp] -> ChildApp -> STM [ChildApp]
+deleteChildApp storage childApp = do
+               children <- readTVar storage
+
+               let childAppId = identifyChild childApp
+                   children' = filter (\c -> childAppId /= (identifyChild c)) children
+
+               writeTVar storage children'
+               return children'
+
+
+setChildState :: TVar [ChildApp] -> ChildApp -> ChildAppState -> STM [ChildApp]
 setChildState storage childApp newState = do
               let newChildApp = ChildApp (name childApp)
                                          (version childApp)
@@ -111,8 +124,8 @@ setChildState storage childApp newState = do
                                          (handle childApp)
                                          newState
 
-              children <- atomically $ updateChildApp storage newChildApp
-              return children
+              updateChildApp storage newChildApp
+
 
 getAvailablePort :: TVar [Int] -> STM Int
 getAvailablePort tvar = do
@@ -138,58 +151,124 @@ createChildApp :: TVar [Int] -> TVar [ChildApp] -> String -> String
 
 createChildApp portsTVar storage name' version' filePath' args' = do
                port <- atomically $ getAvailablePort portsTVar
-               let args'' = map (fromMaybe (show port)) args'
-               processHandle <- runProcess filePath' args''
-                                                           Nothing Nothing
-                                                           Nothing Nothing
-                                                           Nothing
 
                let newChild = ChildApp name' version' filePath' args'
-                                       port (Just processHandle) Started
-
-               _ <- forkIO $ childWatcher storage newChild -- FIXME: Save TheadId somewhere
+                                       port Nothing Started
 
                _ <- atomically $ addChildApp storage newChild
+               _ <- spawnChildApp storage newChild
+
                return newChild
 
 
-childWatcher :: TVar [ChildApp] -> ChildApp -> IO ()
-childWatcher storage childApp = do
-             case (handle childApp) of
---                  Nothing -> -- restart
-                  Just processHandle -> do
-                       _ <- waitForProcess processHandle
-                       return ()
+fillArgs :: [Maybe String] -> Int -> [String]
+fillArgs mArgs port' = map (fromMaybe (show port')) mArgs
+
+
+spawnChildApp :: TVar [ChildApp] -> ChildApp -> IO ()
+spawnChildApp storage (ChildApp name' version' filePath'
+                               args' portNumber' handle'
+                               state') = do
+
+              processHandle <- runProcess filePath' (fillArgs args' portNumber')
+                                          Nothing Nothing Nothing Nothing Nothing
+              let newChild = ChildApp name' version' filePath' args'
+                                      portNumber' (Just processHandle) Started
+              _ <- atomically $ updateChildApp storage newChild
+              _ <- forkIO $ childWatcher storage newChild
+              return ()
+
+--spawnChildAppAndClean :: TVar [Children] -> ChildApp -> IO ()
+--spawnChildAppAndClean storage
+
+-- todo: der tilføjes to entries til processList i stedet for en
+-- set state=Stopping before kill for at undgå respawn
 
 {-
-startChild :: TVar [ChildApp] -> String -> STM (Maybe ChildApp)
-startChild storage childId = do
-           (mChild, children) <- getChildById storage childId
+childWatcher :: TVar [ChildApp] -> ChildApp -> IO ()
+childWatcher storage childApp = do
+             let childState = state childApp
+             case (handle childApp) of
+                  Nothing -> do
+                          case (not $ childState `elem` [Stopped, Starting, Stopping]) of
+                               True -> do
+                                    _ <- spawnChildApp storage childApp
+                                    return ()
+                               False -> do
+                                     return ()
 
-           case mChild of
-                Nothing -> return Nothing
-                Just child -> do
-                     case (handle child) of
-                          Nothing -> do
-                          Just childHandle ->
+                  Just processHandle -> do
+                       exitCode <- waitForProcess processHandle
+                       case exitCode of
+                            ExitSuccess -> do
+                                mChild <- atomically $ getChildById storage $ identifyChild childApp
+                                case mChild of
+                                     Nothing -> do
+--                                             _ <- spawnChildApp storage childApp -- "Af en eller anden grund er der allerede ryddet op.."
+                                             return ()
+                                     Just child -> do
+                                          case (state child) of
+                                               Stopping -> do
+                                                    _ <- atomically $ deleteChildApp storage child
+                                                    return ()
+                                               _ -> do
+                                                    _ <- spawnChildApp storage childApp
+                                                    return ()
+                            ExitFailure errorCode -> do
+                                        -- FIXME: log the errorCode somewhere
+                                        _ <- spawnChildApp storage childApp
+                                        return ()
+                       return ()
 -}
 
-killChildApp :: TVar [ChildApp] -> String -> STM (Maybe ChildApp)
+
+childWatcher :: TVar [ChildApp] -> ChildApp -> IO ()
+
+childWatcher storage childApp@(ChildApp _ _ _ _ _ Nothing state')
+             | state' `elem` [Stopped, Starting, Stopped] = spawnChildApp storage childApp
+
+childWatcher storage childApp@(ChildApp _ _ _ _ _ (Just processHandle) state') = do
+             exitCode <- waitForProcess processHandle
+             mChild <- atomically $ getChildById storage $ identifyChild childApp
+
+             case mChild of
+                  Nothing -> do
+                          return ()
+                      --  Af en eller anden grund er der allerede ryddet op, dette bør nok logges.
+                  Just child -> do
+                       case state' of
+                            Stopping -> do
+                                     _ <- atomically $ deleteChildApp storage child
+                                     return ()
+                            Started -> do
+--                              _ <- spawnChildApp storage childApp
+                              return ()
+                            _ -> do
+                              return ()
+
+             return ()
+
+childWatcher _ _ = return ()
+
+
+killChildApp :: TVar [ChildApp] -> String -> IO (Maybe ChildApp)
 killChildApp storage childId = do
-             mChild <- getChildById storage childId
+             mChild <- atomically $ getChildById storage childId
 
              case mChild of
                   Nothing -> return Nothing
                   Just child ->
                        case (handle child) of
-                            Nothing -> return (Just child)
+                            Nothing -> do
+--                                    _ <- atomically $ setChildState storage child Stopped -- måske er dette nødvendigt, selvom childWatcher tråden burde gøre dette
+                                    return (Just child)
                             Just processHandle -> do
-                                 _ <- unsafeIOToSTM $ terminateProcess processHandle
---                                 _ <- unsafeIOToSTM $ waitForProcess processHandle
+                                 _ <- atomically $ setChildState storage child Stopping
+                                 _ <- terminateProcess processHandle
                                  return (Just child)
 
 
-restartChild :: TVar [ChildApp] -> String -> STM (Maybe ChildApp)
+restartChild :: TVar [ChildApp] -> String -> IO (Maybe ChildApp)
 restartChild storage childId = do
              killChildApp storage childId
 --             startChild storage childId

@@ -42,11 +42,11 @@ getStartProcessR appId = undefined
 getKillProcessR :: String -> Handler ()
 getKillProcessR appId = do
                 storage <- processList <$> getYesod
-                mChild <- liftIO $ atomically $ killChildApp storage appId
+                mChild <- liftIO $ killChildApp storage appId
 
                 case mChild of
                      Nothing -> notFound
-                     Just _ -> redirect $ ViewProcessR appId
+                     Just _ -> redirect HomeR
 
 
 
