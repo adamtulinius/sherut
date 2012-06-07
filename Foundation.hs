@@ -46,7 +46,7 @@ data App = App
     , connPool :: Database.Persist.Store.PersistConfigPool Settings.PersistConfig -- ^ Database connection pool.
     , httpManager :: Manager
     , persistConfig :: Settings.PersistConfig
-    , processList :: TVar [ChildApp]
+    , processList :: TVar [TVar ChildApp]
     , usedPorts :: TVar [Int]
     }
 

@@ -2,14 +2,20 @@
 <table>
   <tr>
     <th>Name
-    <th>Running
-    <th>Kill
+    <th>Version
+    <th>Port
+    <th>State
+    <th>Control
   $forall child <- children
     $with childIdentifier <- identifyChild child
       <tr>
         <td>
           <a href=@{ViewProcessR childIdentifier}>
             #{name child}
+        <td>
+          #{version child}
+        <td>
+          #{portNumber child}
         <td>
           #{show $ state child}
         <td>
