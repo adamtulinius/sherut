@@ -13,7 +13,9 @@ getHomeR = do
                 children' <- liftIO $ atomically $ do
                          mapM readTVar childrenT
 
-                let children = sortBy (\a b -> compare (identifyChild a) (identifyChild b)) children'
+                let children = sortBy (\a b -> compare (identifyChild a)
+                                                       (identifyChild b))
+                                      children'
 
                 defaultLayout $(widgetFile "children")
 
@@ -23,7 +25,7 @@ getNewProcessR = do
                portTVar <- usedPorts <$> getYesod
                storage <- processList <$> getYesod
 
-               childT <- liftIO $ createChildApp portTVar storage "test-app2" "0.0.1"
+               childT <- liftIO $ createChildApp portTVar storage "localhost" "/" "test-app2" "0.0.1"
                                                       "cabal-dev/bin/sherut"
                                                       [Just "Development", Just"--port", Nothing]
 
@@ -56,7 +58,6 @@ getKillProcessR appId = do
                 case mChild of
                      Nothing -> notFound
                      Just _ -> redirect HomeR
-
 
 
 getRestartProcessR :: String -> Handler RepHtml

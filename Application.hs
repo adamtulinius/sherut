@@ -16,7 +16,11 @@ import Network.Wai.Middleware.RequestLogger (logCallback, logCallbackDev)
 import qualified Database.Persist.Store
 import Database.Persist.GenericSql (runMigration)
 import Network.HTTP.Conduit (newManager, def)
+import Control.Concurrent (forkIO)
+import qualified Data.Map as Map
 import ProcessList
+import Proxy
+
 
 -- Import all relevant handler modules here.
 -- Don't forget to add new modules to your cabal file!
@@ -50,9 +54,12 @@ makeFoundation conf setLogger = do
               Database.Persist.Store.applyEnv
     p <- Database.Persist.Store.createPoolConfig (dbconf :: Settings.PersistConfig)
     Database.Persist.Store.runPool dbconf (runMigration migrateAll) p
+
     processList' <- liftIO $ atomically $ newTVar []
-    usedPorts'   <- liftIO $ atomically $ newTVar []
-    return $ App conf setLogger s p manager dbconf processList' usedPorts'
+    usedPorts'   <- liftIO $ atomically $ newTVar $ Map.empty
+    proxyThreadId' <- liftIO $ forkIO $ createProxy usedPorts' 5000
+
+    return $ App conf setLogger s p manager dbconf proxyThreadId' processList' usedPorts'
 
 -- for yesod devel
 getApplicationDev :: IO (Int, Application)

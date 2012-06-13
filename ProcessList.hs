@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module ProcessList
     ( ChildApp (..)
     , ChildAppState (..)
@@ -19,11 +21,12 @@ import Data.Maybe (fromMaybe)
 import Data.List (sort)
 import System.Exit (ExitCode (ExitSuccess, ExitFailure))
 import System.Process
-import GHC.Conc (atomically, STM, TVar, newTVar, readTVar, writeTVar, unsafeIOToSTM)
+import GHC.Conc (atomically, STM, TVar, newTVar, readTVar, writeTVar)
 import Control.Concurrent (forkIO)
 import Control.Monad (filterM)
-
-
+import qualified Data.Map as Map
+import Data.ByteString (append)
+import Data.ByteString.UTF8 (ByteString)
 
 data ChildAppState = Started | Stopped | Starting | Stopping | Crashed
                      deriving (Show, Eq)
@@ -133,38 +136,39 @@ setChildState childAppT newState = do
                                        newState)
 
 
-getAvailablePort :: TVar [Int] -> STM Int
-getAvailablePort tvar = do
-                 usedPorts <- readTVar tvar
+createChildApp :: TVar (Map.Map ByteString (ByteString, Int)) -> TVar [TVar ChildApp]
+               -> ByteString -> ByteString -> String -> String -> FilePath
+               -> [Maybe String] -> IO (TVar ChildApp)
 
-                 let sortedPorts = sort usedPorts
-                     np []                     = 3001
-                     np (x1:[])                = x1+1
-                     np (x1:x2:xs) | diff <= 1 = np(x2:xs) 
-                                   | diff  > 1 = x1+1
-                        where diff = x2-x1
-                     np _                      = 3001
-                     newPort = np sortedPorts
+createChildApp routeMapTVar storage host route name' version' filePath' args' = do
+               child <- atomically $ do
+                          routeMap <- readTVar routeMapTVar
 
-                 _ <- writeTVar tvar (newPort:usedPorts)
+                          let getPort (_, port) = port
 
-                 return newPort
+                          -- FIXME: optimization around here.
+                          let sortedPorts = sort $ map getPort $ Map.elems routeMap
+                              np []                     = 3001
+                              np (x1:[])                = x1+1
+                              np (x1:x2:xs) | diff <= 1 = np(x2:xs)
+                                            | diff  > 1 = x1+1
+                                 where diff = x2-x1
+                              np _                      = 3001
+                              newPort = np sortedPorts
 
 
+                          newChild <- newTVar (ChildApp name' version' filePath' args'
+                                                        newPort Nothing Started)
 
-createChildApp :: TVar [Int] -> TVar [TVar ChildApp] -> String -> String
-                -> FilePath -> [Maybe String] -> IO (TVar ChildApp)
+                          _ <- writeTVar routeMapTVar $ Map.insert (host `append` route)
+                                                                   ("localhost", newPort) -- FIXME
+                                                                   routeMap
+                          _ <- addChildApp storage newChild
 
-createChildApp portsTVar storage name' version' filePath' args' = do
-               port <- atomically $ getAvailablePort portsTVar
+                          return newChild
 
-               newChild <- atomically $ newTVar (ChildApp name' version' filePath' args'
-                                                          port Nothing Started)
-
-               _ <- atomically $ addChildApp storage newChild
-               _ <- spawnChildApp storage newChild
-
-               return newChild
+               _ <- spawnChildApp storage child
+               return child
 
 
 fillArgs :: [Maybe String] -> Int -> [String]

@@ -31,8 +31,10 @@ import Model
 import Text.Jasmine (minifym)
 import Web.ClientSession (getKey)
 import Text.Hamlet (hamletFile)
-
+import Control.Concurrent (ThreadId)
 import ProcessList
+import Data.Map (Map)
+import Data.ByteString.UTF8 (ByteString)
 
 
 -- | The site argument for your application. This can be a good place to
@@ -46,8 +48,9 @@ data App = App
     , connPool :: Database.Persist.Store.PersistConfigPool Settings.PersistConfig -- ^ Database connection pool.
     , httpManager :: Manager
     , persistConfig :: Settings.PersistConfig
+    , proxyThreadId :: ThreadId
     , processList :: TVar [TVar ChildApp]
-    , usedPorts :: TVar [Int]
+    , usedPorts :: TVar (Map ByteString (ByteString, Int))
     }
 
 -- Set up i18n messages. See the message folder.
