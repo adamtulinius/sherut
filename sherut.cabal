@@ -31,6 +31,8 @@ library
                      Handler.Home
                      ProcessList
                      Proxy
+                     Proxy.Interface
+                     Misc
 
     if flag(dev) || flag(library-only)
         cpp-options:   -DDEVELOPMENT
@@ -86,6 +88,7 @@ library
                  , containers                    == 0.4.2.*
                  , enumerator                    == 0.4.*
                  , blaze-builder                 == 0.3.1.*
+                 , stm                           == 2.3.*
 
 executable         sherut
     if flag(library-only)

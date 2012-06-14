@@ -34,6 +34,7 @@ import Text.Hamlet (hamletFile)
 import Control.Concurrent (ThreadId)
 import ProcessList
 import Proxy (HostMap)
+import Misc (ChildApp)
 
 
 -- | The site argument for your application. This can be a good place to

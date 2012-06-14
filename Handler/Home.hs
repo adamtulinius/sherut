@@ -2,8 +2,9 @@
 module Handler.Home where
 
 import Import
-import ProcessList
 import Data.List (sortBy)
+import ProcessList
+import Misc
 
 
 getHomeR :: Handler RepHtml
