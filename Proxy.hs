@@ -1,16 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Proxy
-       (createProxy
+       ( HostMap
+       , RouteMap
+       , Address (..)
+       , createProxy
+       , prefixMatch
+       , usedPorts
        ) where
 
 import Prelude
+import Data.List (sortBy, splitAt)
 import Yesod (liftIO)
 import Network.Wai
 import Network.Wai.Handler.Warp
 import qualified Network.HTTP.Types as H
 --import Blaze.ByteString.Builder (copyByteString)
-import Data.ByteString (append)
 import Data.ByteString.UTF8 (ByteString)
 --import Data.Enumerator (run_, enumList, ($$))
 --import qualified Data.Text as T
@@ -26,38 +31,72 @@ import qualified Network.HTTP.Conduit as HC
 --import Control.Monad.Trans.Resource (ResourceT)
 
 
-createProxy :: TVar (Map.Map ByteString (ByteString, Int)) -> Int -> IO ()
-createProxy routeMapTVar port = do
+data Address  = Address { host :: ByteString, port :: Int } deriving (Show)
+type RouteMap = Map.Map ByteString Address
+type HostMap  = Map.Map ByteString RouteMap
+
+
+createProxy :: TVar HostMap -> Int -> IO ()
+createProxy routeMapTVar port' = do
 
      manager <- HC.newManager HC.def
 
-     run port $ application manager routeMapTVar
+     run port' $ application manager routeMapTVar
      HC.closeManager manager
 
 
-findBackend :: TVar (Map.Map ByteString (ByteString, Int)) -> ByteString
-            -> ByteString -> IO (Maybe (ByteString, Int))
-findBackend routeMapTVar host route = do
-            routeMap <- liftIO $ atomically $ readTVar routeMapTVar
+usedPorts :: HostMap -> [Int]
+usedPorts hostMap =  map port $ concat $ map Map.elems $ Map.elems hostMap
 
-            return $! Map.lookup (host `append` route) routeMap
+
+prefixMatch :: Ord a => [a] -> [a] -> (Int)
+prefixMatch (a:as) (b:bs) =
+            if a == b
+            then 1 + (prefixMatch as bs)
+            else 0
+
+prefixMatch _ _ = 0
+
+prefixMatch' :: ByteString -> (ByteString, Address) -> (Int, (ByteString, Address))
+prefixMatch' needle t@(route', _) = (prefixMatch (unpack needle) (unpack route'), t)
+
+
+findBackend :: TVar HostMap -> ByteString
+            -> ByteString -> IO (Maybe (Address, Int))
+findBackend hostMapTVar host' route = do
+            hostMap <- liftIO $ atomically $ readTVar hostMapTVar
+
+            return $! case Map.lookup host' hostMap of
+                 Just routeMap ->
+                      case Map.toList routeMap of
+                           [] -> Nothing
+                           li -> let a = map     (prefixMatch' route)               li
+                                     b = filter  (\(i',_)        -> i' > 1)         a
+                                     c = sortBy  (\(a',_) (b',_) -> compare a' b')  b
+                                 in case c of
+                                    ((n, (_, m)):_) -> Just (m, n)
+                                    _ -> Nothing
+                 Nothing       -> Nothing
 
 
 contentType ct = ("Content-Type", ct)
 
 
-application :: HC.Manager -> TVar (Map.Map ByteString (ByteString, Int)) -> Application
-application manager routeMapTVar req = do
-            backend <- liftIO $ findBackend routeMapTVar (serverName req)
-                                                (rawPathInfo req)
+application :: HC.Manager -> TVar HostMap -> Application
+application manager hostMapTVar req = do
+            backend <- liftIO $ findBackend hostMapTVar
+                                            (serverName req)
+                                            (rawPathInfo req)
+
             case backend of
                  Nothing -> return $! responseLBS H.status404 [contentType "text/html"] ":-("
-                 Just (backendHost, backendPort) -> do
+                 Just (address, matchLength) -> do
 --                      let (_, _, requestBodyString) = requestBody req
-                      let backendRequest = HC.def { HC.method = requestMethod req
-                                                  , HC.host = backendHost
-                                                  , HC.port = backendPort
-                                                  , HC.path = rawPathInfo req
+                      let (match, rest) = splitAt matchLength (unpack $ rawPathInfo req)
+                          backendRequest = HC.def { HC.method = requestMethod req
+                                                  , HC.host = host address
+                                                  , HC.port = port address
+                                                  , HC.path = pack $ rest
                                                   , HC.queryString = rawQueryString req
                                                   , HC.requestHeaders = requestHeaders req
                                                           ++ [("X-Forwarded-For", "localhost:5000")]
@@ -71,6 +110,5 @@ application manager routeMapTVar req = do
                                   HC.httpLbs backendRequest manager
 
                       return $! case H.statusCode status of
-                           200 -> responseLBS status headers src
-                           302 -> responseLBS status headers src
-                           _   -> responseLBS status headers ""
+                             200 -> responseLBS status headers src
+                             _   -> responseLBS status headers src

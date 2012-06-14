@@ -8,21 +8,23 @@ import Data.List (sortBy)
 
 getHomeR :: Handler RepHtml
 getHomeR = do
-                childrenTVar <- processList <$> getYesod
-                childrenT <- liftIO $ listChildApps childrenTVar
-                children' <- liftIO $ atomically $ do
-                         mapM readTVar childrenT
+         hostMapTVar <- hostMap <$> getYesod
+         hostMap' <- liftIO $ atomically $ readTVar hostMapTVar
+         childrenTVar <- processList <$> getYesod
+         childrenT <- liftIO $ listChildApps childrenTVar
+         children' <- liftIO $ atomically $ do
+                   mapM readTVar childrenT
 
-                let children = sortBy (\a b -> compare (identifyChild a)
-                                                       (identifyChild b))
-                                      children'
+         let children = sortBy (\a b -> compare (identifyChild a)
+                                                (identifyChild b))
+                               children'
 
-                defaultLayout $(widgetFile "children")
+         defaultLayout $(widgetFile "children")
 
 
 getNewProcessR :: Handler RepHtml
 getNewProcessR = do
-               portTVar <- usedPorts <$> getYesod
+               portTVar <- hostMap <$> getYesod
                storage <- processList <$> getYesod
 
                childT <- liftIO $ createChildApp portTVar storage "localhost" "/" "test-app2" "0.0.1"
@@ -46,10 +48,6 @@ getViewProcessR appId = do
                      Nothing -> notFound
 
 
-getStartProcessR :: String -> Handler RepHtml
-getStartProcessR appId = undefined
-
-
 getKillProcessR :: String -> Handler ()
 getKillProcessR appId = do
                 storage <- processList <$> getYesod
@@ -58,7 +56,3 @@ getKillProcessR appId = do
                 case mChild of
                      Nothing -> notFound
                      Just _ -> redirect HomeR
-
-
-getRestartProcessR :: String -> Handler RepHtml
-getRestartProcessR appId = undefined

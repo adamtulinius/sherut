@@ -56,10 +56,10 @@ makeFoundation conf setLogger = do
     Database.Persist.Store.runPool dbconf (runMigration migrateAll) p
 
     processList' <- liftIO $ atomically $ newTVar []
-    usedPorts'   <- liftIO $ atomically $ newTVar $ Map.empty
-    proxyThreadId' <- liftIO $ forkIO $ createProxy usedPorts' 5000
+    hostMap'   <- liftIO $ atomically $ newTVar $ Map.empty
+    proxyThreadId' <- liftIO $ forkIO $ createProxy hostMap' 5000
 
-    return $ App conf setLogger s p manager dbconf proxyThreadId' processList' usedPorts'
+    return $ App conf setLogger s p manager dbconf proxyThreadId' processList' hostMap'
 
 -- for yesod devel
 getApplicationDev :: IO (Int, Application)

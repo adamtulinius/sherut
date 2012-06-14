@@ -33,8 +33,7 @@ import Web.ClientSession (getKey)
 import Text.Hamlet (hamletFile)
 import Control.Concurrent (ThreadId)
 import ProcessList
-import Data.Map (Map)
-import Data.ByteString.UTF8 (ByteString)
+import Proxy (HostMap)
 
 
 -- | The site argument for your application. This can be a good place to
@@ -50,7 +49,7 @@ data App = App
     , persistConfig :: Settings.PersistConfig
     , proxyThreadId :: ThreadId
     , processList :: TVar [TVar ChildApp]
-    , usedPorts :: TVar (Map ByteString (ByteString, Int))
+    , hostMap :: TVar HostMap
     }
 
 -- Set up i18n messages. See the message folder.
