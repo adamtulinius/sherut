@@ -28,7 +28,7 @@ getNewProcessR = do
                portTVar <- hostMap <$> getYesod
                storage <- processList <$> getYesod
 
-               childT <- liftIO $ createChildApp portTVar storage "localhost" "/" "test-app2" "0.0.1"
+               childT <- liftIO $ createChildApp portTVar storage "localhost" "/foo" "test-app2" "0.0.1"
                                                       "cabal-dev/bin/sherut"
                                                       [Just "Development", Just"--port", Nothing]
 

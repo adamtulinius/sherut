@@ -14,6 +14,7 @@ import System.Process
 import GHC.Conc (atomically, STM, TVar, newTVar, readTVar, writeTVar)
 import qualified Data.Map as Map
 import Data.ByteString.UTF8 (ByteString)
+import Control.Concurrent (forkIO)
 import Proxy
 import Misc
 
@@ -24,7 +25,7 @@ createChildApp :: TVar HostMap -> TVar [TVar ChildApp]
 
 
 createChildApp hostMapTVar storage host' route' name' version' filePath' args' = do
-               child <- atomically $ do
+               (child, queue') <- atomically $ do
                           hostMap <- readTVar hostMapTVar
 
                           let sortedPorts = sort $ usedPorts hostMap
@@ -39,8 +40,10 @@ createChildApp hostMapTVar storage host' route' name' version' filePath' args' =
 
                           newChild <- newTVar (ChildApp name' version' filePath' args'
                                                         newPort Nothing Started)
+                          --FIXME: do something sensible with max queue length
+                          backendQueue <- createBackendQueue 100
+                          let address = Address host' newPort backendQueue
 
-                          let address = Address host' newPort
                               newHostRoutes = case mHostRoutes of
                                  Nothing         -> Map.insert route' address Map.empty
                                  Just hostRoutes -> Map.insert route' address hostRoutes
@@ -49,7 +52,8 @@ createChildApp hostMapTVar storage host' route' name' version' filePath' args' =
 
                           _ <- addChildApp storage newChild
 
-                          return newChild
+                          return (newChild, backendQueue)
 
+               _ <- forkIO $ backendQueueDaemon queue'
                _ <- spawnChildApp storage child
                return child

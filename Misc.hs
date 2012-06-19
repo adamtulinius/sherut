@@ -23,6 +23,7 @@ import System.Process
 import GHC.Conc (atomically, STM, TVar, readTVar, writeTVar)
 import Control.Concurrent (forkIO)
 import Control.Monad (filterM)
+import Proxy
 
 
 data ChildApp = ChildApp { name :: String
