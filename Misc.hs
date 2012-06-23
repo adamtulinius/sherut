@@ -23,7 +23,6 @@ import System.Process
 import GHC.Conc (atomically, STM, TVar, readTVar, writeTVar)
 import Control.Concurrent (forkIO)
 import Control.Monad (filterM)
-import Proxy
 
 
 data ChildApp = ChildApp { name :: String
@@ -198,3 +197,18 @@ killChildApp storage childId = do
 
 fillArgs :: [Maybe String] -> Int -> [String]
 fillArgs mArgs port' = map (fromMaybe (show port')) mArgs
+
+
+modTVar :: (a -> a) -> TVar a -> STM a
+
+modTVar f var = do
+        a <- readTVar var
+        let b = f a
+        _ <- writeTVar var b
+        return b
+
+tVarUp1 :: Num a => TVar a -> STM a
+tVarUp1 var = modTVar ((+) 1) var
+
+tVarDown1 :: Num a => TVar a -> STM a
+tVarDown1 var = modTVar ((-) 1) var
