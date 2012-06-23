@@ -49,7 +49,6 @@ createChildApp hostMapTVar storage host' route' name' version' filePath' args' =
                                  Just hostRoutes -> Map.insert route' address hostRoutes
 
                           _ <- writeTVar hostMapTVar $ Map.insert host' newHostRoutes hostMap
-
                           _ <- addChildApp storage newChild
 
                           return (newChild, backendQueue)

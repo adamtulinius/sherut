@@ -25,7 +25,7 @@ import Data.ByteString.UTF8 (ByteString)
 import Data.ByteString.Char8 (pack, unpack)
 import qualified Data.ByteString.Lazy.Char8 as LB
 import qualified Data.Map as Map
-import GHC.Conc (atomically, STM, TVar, readTVar, writeTVar)
+import GHC.Conc (atomically, STM, TVar, newTVar, readTVar, writeTVar)
 
 -- conduit imports
 --import qualified Data.Conduit as C
@@ -39,7 +39,13 @@ import Control.Concurrent.STM.TBMChan
 import Control.Monad (forever)
 
 
-type BackendQueue = TBMChan (MVar Bool)
+data Backend = Backend { backendHost :: ByteString
+                       , backendPort :: Int
+                       , backendLimit :: TVar Int
+                       , backendCounter :: TVar Int
+                       }
+
+type BackendQueue = TBMChan (MVar Backend)
 
 data Address  = Address { host :: ByteString
                         , port :: Int
@@ -48,6 +54,8 @@ data Address  = Address { host :: ByteString
 
 type RouteMap = Map.Map ByteString Address
 type HostMap  = Map.Map ByteString RouteMap
+type BackendMap = RouteMap
+type SiteMap = HostMap
 
 
 modTVar :: TVar Int -> (Int -> Int) -> STM Int
@@ -56,6 +64,13 @@ modTVar tvar f = do
                let newValue = f c
                writeTVar tvar newValue
                return newValue
+
+
+createBackend :: ByteString -> Int -> Int -> STM Backend
+createBackend host' port' limit' = do
+              limitTVar <- newTVar limit'
+              counterTVar <- newTVar 0
+              return $! Backend host' port' limitTVar counterTVar
 
 
 createBackendQueue :: Int -> STM (BackendQueue)
@@ -70,7 +85,8 @@ backendQueueDaemon queue' = forever $ do
                              mmvar <- atomically $ readTBMChan queue'
                              case mmvar of
                                   Just mvar -> do
-                                       _ <- liftIO $ putMVar mvar True
+                                       backend' <- atomically $ createBackend "" 0 0 -- FIXME: fill in proper backend
+                                       _ <- liftIO $ putMVar mvar $ backend'
                                        return ()
                                   Nothing -> return () --FIXME: Channel was closed, shut down.
                              return ()
